@@ -46,14 +46,20 @@ function toCamel(obj) {
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 app.post('/api/auth/login', authRateLimit, async (req, res) => {
-  const { email, password } = req.body;
-  const { rows } = await pool.query(
-    'SELECT * FROM users WHERE email = $1 AND password = $2',
-    [email, password]
-  );
-  if (!rows.length) return res.status(401).json({ message: 'Invalid credentials' });
-  const { password: _, ...safeUser } = toCamel(rows[0]);
-  res.json({ user: safeUser, token: 'mock_jwt_' + Date.now() });
+  console.log("👉 Login request received for:", req.body.email);
+  try {
+    const { email, password } = req.body;
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE email = $1 AND password = $2',
+      [email, password]
+    );
+    if (!rows.length) return res.status(401).json({ message: 'Invalid credentials' });
+    const { password: _, ...safeUser } = toCamel(rows[0]);
+    res.json({ user: safeUser, token: 'mock_jwt_' + Date.now() });
+  } catch (err) {
+    console.error('🔥 Database Error during login:', err.message);
+    res.status(500).json({ message: 'Database connection failed. Check terminal.' });
+  }
 });
 
 app.post('/api/auth/register', authRateLimit, async (req, res) => {

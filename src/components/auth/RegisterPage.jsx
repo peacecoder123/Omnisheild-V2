@@ -17,11 +17,26 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (form.password !== form.confirm) { setError('Passwords do not match.'); return }
-    if (!form.terms) { setError('Please accept the terms.'); return }
+    if (form.password !== form.confirm) { 
+      setError('Passwords do not match.')
+      return 
+    }
+    if (!form.terms) { 
+      setError('Please accept the terms.')
+      return 
+    }
+    
     setError('')
     try {
-      await register({ name: form.name, email: form.email, phone: form.phone, abhaId: form.abhaId, role: form.role })
+      // FIX: Added the missing password field to the payload
+      await register({ 
+        name: form.name, 
+        email: form.email, 
+        phone: form.phone, 
+        abhaId: form.abhaId, 
+        role: form.role,
+        password: form.password 
+      })
       navigate('/dashboard')
     } catch {
       setError('Registration failed. Please try again.')

@@ -1,21 +1,80 @@
-import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts'
 import React, { createContext, useContext, useState } from 'react';
 
 // 1. Create the context
 const AuthContext = createContext();
 
-// 2. Export the custom hook (this fixes the "useAuth" error)
+// 2. Export the custom hook
 export const useAuth = () => {
     return useContext(AuthContext);
 };
 
-// 3. Export the provider (this fixes the "AuthProvider" error)
+// 3. Export the provider
 export const AuthProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    // Get the backend URL from your .env file, fallback to localhost:5000
+    const API_URL = 'http://localhost:5000';
+
+    const login = async (email, password, role) => {
+        setLoading(true);
+        try {
+            const response = await fetch(`${API_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, role }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Login failed');
+            }
+
+            const data = await response.json();
+            setCurrentUser(data.user);
+            // Optional: Store token in localStorage for persistence
+            localStorage.setItem('omnishield_token', data.token);
+            return data;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const register = async (userData) => {
+        setLoading(true);
+        try {
+            const response = await fetch(`${API_URL}/api/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(userData),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Registration failed');
+            }
+
+            const data = await response.json();
+            setCurrentUser(data.user);
+            localStorage.setItem('omnishield_token', data.token);
+            return data;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const logout = () => {
+        setCurrentUser(null);
+        localStorage.removeItem('omnishield_token');
+    };
 
     const value = {
         currentUser,
-        setCurrentUser
+        setCurrentUser,
+        login,
+        register,
+        logout,
+        loading
     };
 
     return (
@@ -24,53 +83,3 @@ export const AuthProvider = ({ children }) => {
         </AuthContext.Provider>
     );
 };
-
-const TOTAL_BUDGET = 10
-const USED_BUDGET = 3.84
-
-export default function BudgetTracker() {
-  const pct = Math.round((USED_BUDGET / TOTAL_BUDGET) * 100)
-  const data = [{ name: 'Used', value: pct }]
-
-  const color = pct > 80 ? '#ef4444' : pct > 60 ? '#f97316' : '#0d9488'
-
-  return (
-    <div className="card">
-      <h2 className="section-title">Privacy Budget (ε-DP)</h2>
-      <div className="flex items-center gap-6">
-        <div className="w-40 h-40 relative shrink-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadialBarChart cx="50%" cy="50%" innerRadius="60%" outerRadius="90%"
-              startAngle={90} endAngle={-270} data={data}>
-              <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-              <RadialBar dataKey="value" cornerRadius={8} fill={color} background={{ fill: '#e5e7eb' }} />
-            </RadialBarChart>
-          </ResponsiveContainer>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-bold" style={{ color }}>{pct}%</span>
-            <span className="text-xs text-gray-400">used</span>
-          </div>
-        </div>
-        <div className="flex-1 space-y-3">
-          <div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-gray-600">Total Budget (ε)</span>
-              <span className="font-semibold">{TOTAL_BUDGET}</span>
-            </div>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-gray-600">Used Budget (ε)</span>
-              <span className="font-semibold text-orange-600">{USED_BUDGET}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Remaining (ε)</span>
-              <span className="font-semibold text-green-600">{(TOTAL_BUDGET - USED_BUDGET).toFixed(2)}</span>
-            </div>
-          </div>
-          <div className="text-xs text-gray-400 bg-gray-50 rounded p-2">
-            Budget resets in <strong>22 days</strong>. Noise mechanism: Gaussian (δ = 10⁻⁵).
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
