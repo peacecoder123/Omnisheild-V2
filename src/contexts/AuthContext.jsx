@@ -1,4 +1,29 @@
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts'
+import React, { createContext, useContext, useState } from 'react';
+
+// 1. Create the context
+const AuthContext = createContext();
+
+// 2. Export the custom hook (this fixes the "useAuth" error)
+export const useAuth = () => {
+    return useContext(AuthContext);
+};
+
+// 3. Export the provider (this fixes the "AuthProvider" error)
+export const AuthProvider = ({ children }) => {
+    const [currentUser, setCurrentUser] = useState(null);
+
+    const value = {
+        currentUser,
+        setCurrentUser
+    };
+
+    return (
+        <AuthContext.Provider value={value}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
 
 const TOTAL_BUDGET = 10
 const USED_BUDGET = 3.84
