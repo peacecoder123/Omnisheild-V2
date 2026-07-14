@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import pool from './db.js';
 import { initWebSocket, broadcast } from './websocket.js';
 import { getChatbotResponse } from './chatbot.js';
@@ -8,13 +10,17 @@ import { getChatbotResponse } from './chatbot.js';
 const app = express();
 const PORT = 5000;
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Set it in .env before starting the server.');
+}
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json());
 
 const server = http.createServer(app);
 initWebSocket(server);
 
-// ─── Simple in-memory rate limiter for auth endpoints ─────────────────────
 const authAttempts = new Map();
 function authRateLimit(req, res, next) {
   const key = req.ip;
@@ -32,7 +38,6 @@ function authRateLimit(req, res, next) {
   next();
 }
 
-// ─── Helper: map snake_case DB column names to camelCase ───────────────────
 function toCamel(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(toCamel);
@@ -44,20 +49,38 @@ function toCamel(obj) {
   );
 }
 
-// ─── Auth ──────────────────────────────────────────────────────────────────
+function verifyToken(req, res, next) {
+  const header = req.headers['authorization'];
+  if (!header || !header.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Authorization required.' });
+  }
+  const token = header.slice(7);
+  try {
+    req.user = jwt.verify(token, JWT_SECRET || 'fallback_dev_secret');
+    next();
+  } catch {
+    return res.status(401).json({ message: 'Invalid or expired token.' });
+  }
+}
+
 app.post('/api/auth/login', authRateLimit, async (req, res) => {
-  console.log("👉 Login request received for:", req.body.email);
+  console.log('Login request received for:', req.body.email);
   try {
     const { email, password } = req.body;
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE email = $1 AND password = $2',
-      [email, password]
-    );
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (!rows.length) return res.status(401).json({ message: 'Invalid credentials' });
-    const { password: _, ...safeUser } = toCamel(rows[0]);
-    res.json({ user: safeUser, token: 'mock_jwt_' + Date.now() });
+    const user = rows[0];
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ message: 'Invalid credentials' });
+    const { password: _, ...safeUser } = toCamel(user);
+    const token = jwt.sign(
+      { id: safeUser.id, role: safeUser.role, email: safeUser.email },
+      JWT_SECRET || 'fallback_dev_secret',
+      { expiresIn: '8h' }
+    );
+    res.json({ user: safeUser, token });
   } catch (err) {
-    console.error('🔥 Database Error during login:', err.message);
+    console.error('Database Error during login:', err.message);
     res.status(500).json({ message: 'Database connection failed. Check terminal.' });
   }
 });
@@ -67,21 +90,26 @@ app.post('/api/auth/register', authRateLimit, async (req, res) => {
   const { rows: exists } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (exists.length) return res.status(400).json({ message: 'Email already registered' });
   const newId = 'U' + Date.now();
+  const hashed = await bcrypt.hash(password, 10);
   const { rows } = await pool.query(
     'INSERT INTO users (id, email, name, role, password, facility) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-    [newId, email, name, role, password, 'City General Hospital']
+    [newId, email, name, role, hashed, 'City General Hospital']
   );
   const { password: _, ...safeUser } = toCamel(rows[0]);
-  res.json({ user: safeUser, token: 'mock_jwt_' + Date.now() });
+  const token = jwt.sign(
+    { id: safeUser.id, role: safeUser.role, email: safeUser.email },
+    JWT_SECRET || 'fallback_dev_secret',
+    { expiresIn: '8h' }
+  );
+  res.json({ user: safeUser, token });
 });
 
-// ─── Patients ──────────────────────────────────────────────────────────────
-app.get('/api/patients', async (req, res) => {
+app.get('/api/patients', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM patients ORDER BY name');
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/patients/scan', async (req, res) => {
+app.post('/api/patients/scan', verifyToken, async (req, res) => {
   const { patientId, scannedBy, geolocation, timestamp } = req.body;
   const { rows } = await pool.query('SELECT * FROM patients WHERE id = $1', [patientId]);
   if (!rows.length) return res.status(404).json({ message: 'Patient not found' });
@@ -102,7 +130,7 @@ app.post('/api/patients/scan', async (req, res) => {
   res.json({ success: true, patient });
 });
 
-app.get('/api/patients/:id', async (req, res) => {
+app.get('/api/patients/:id', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM patients WHERE id = $1', [req.params.id]);
   if (!rows.length) return res.status(404).json({ message: 'Patient not found' });
   const patient = toCamel(rows[0]);
@@ -121,8 +149,7 @@ app.get('/api/patients/:id', async (req, res) => {
   res.json(patient);
 });
 
-// ─── Appointments ─────────────────────────────────────────────────────────
-app.get('/api/appointments', async (req, res) => {
+app.get('/api/appointments', verifyToken, async (req, res) => {
   const { patientId, doctorId } = req.query;
   let query = 'SELECT * FROM appointments WHERE 1=1';
   const params = [];
@@ -133,7 +160,7 @@ app.get('/api/appointments', async (req, res) => {
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/appointments', async (req, res) => {
+app.post('/api/appointments', verifyToken, async (req, res) => {
   const { patientId, patientName, doctorId, doctorName, department, date, time, type } = req.body;
   const newId = 'A' + Date.now();
   const { rows } = await pool.query(
@@ -146,8 +173,7 @@ app.post('/api/appointments', async (req, res) => {
   res.json(appt);
 });
 
-// ─── Lab Tests ────────────────────────────────────────────────────────────
-app.get('/api/lab-tests', async (req, res) => {
+app.get('/api/lab-tests', verifyToken, async (req, res) => {
   const { status, patientId } = req.query;
   let query = 'SELECT * FROM lab_tests WHERE 1=1';
   const params = [];
@@ -158,7 +184,7 @@ app.get('/api/lab-tests', async (req, res) => {
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/lab-tests', async (req, res) => {
+app.post('/api/lab-tests', verifyToken, async (req, res) => {
   const { patientId, patientName, test, priority, orderedBy } = req.body;
   if (!patientId || !test) return res.status(400).json({ message: 'patientId and test are required' });
   const newId = 'LAB' + Date.now();
@@ -174,7 +200,7 @@ app.post('/api/lab-tests', async (req, res) => {
   res.json(labTest);
 });
 
-app.post('/api/lab-tests/:id/results', async (req, res) => {
+app.post('/api/lab-tests/:id/results', verifyToken, async (req, res) => {
   const { rows: existing } = await pool.query('SELECT id FROM lab_tests WHERE id = $1', [req.params.id]);
   if (!existing.length) return res.status(404).json({ message: 'Test not found' });
   const { rows } = await pool.query(
@@ -186,8 +212,7 @@ app.post('/api/lab-tests/:id/results', async (req, res) => {
   res.json(labTest);
 });
 
-// ─── Vitals ───────────────────────────────────────────────────────────────
-app.get('/api/vitals/:patientId', async (req, res) => {
+app.get('/api/vitals/:patientId', verifyToken, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT * FROM vitals WHERE patient_id = $1 ORDER BY timestamp DESC',
     [req.params.patientId]
@@ -195,7 +220,7 @@ app.get('/api/vitals/:patientId', async (req, res) => {
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/vitals', async (req, res) => {
+app.post('/api/vitals', verifyToken, async (req, res) => {
   const { patientId, bp, hr, spo2, temp, rr, pain, notes, nurse } = req.body;
   const newId = 'V' + Date.now();
   const timestamp = new Date().toISOString();
@@ -209,8 +234,7 @@ app.post('/api/vitals', async (req, res) => {
   res.json(vital);
 });
 
-// ─── Prescriptions ────────────────────────────────────────────────────────
-app.get('/api/prescriptions', async (req, res) => {
+app.get('/api/prescriptions', verifyToken, async (req, res) => {
   const { status, patientId } = req.query;
   let query = 'SELECT * FROM prescriptions WHERE 1=1';
   const params = [];
@@ -221,7 +245,7 @@ app.get('/api/prescriptions', async (req, res) => {
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/prescriptions', async (req, res) => {
+app.post('/api/prescriptions', verifyToken, async (req, res) => {
   const { patientId, patientName, doctorId, doctorName, drug, dosage, qty } = req.body;
   const newId = 'RX' + Date.now();
   const date = new Date().toISOString().split('T')[0];
@@ -235,7 +259,7 @@ app.post('/api/prescriptions', async (req, res) => {
   res.json(rx);
 });
 
-app.patch('/api/prescriptions/:id/dispense', async (req, res) => {
+app.patch('/api/prescriptions/:id/dispense', verifyToken, async (req, res) => {
   const { rows: existing } = await pool.query('SELECT id FROM prescriptions WHERE id = $1', [req.params.id]);
   if (!existing.length) return res.status(404).json({ message: 'Prescription not found' });
   const dispensedAt = new Date().toISOString();
@@ -248,8 +272,7 @@ app.patch('/api/prescriptions/:id/dispense', async (req, res) => {
   res.json(rx);
 });
 
-// Backward-compatible GET alias for dispense (deprecated — prefer PATCH above)
-app.get('/api/prescriptions/:id/dispense', async (req, res) => {
+app.get('/api/prescriptions/:id/dispense', verifyToken, async (req, res) => {
   const { rows: existing } = await pool.query('SELECT id FROM prescriptions WHERE id = $1', [req.params.id]);
   if (!existing.length) return res.status(404).json({ message: 'Prescription not found' });
   const dispensedAt = new Date().toISOString();
@@ -262,54 +285,44 @@ app.get('/api/prescriptions/:id/dispense', async (req, res) => {
   res.json(rx);
 });
 
-// ─── Inventory ────────────────────────────────────────────────────────────
-app.get('/api/inventory', async (req, res) => {
+app.get('/api/inventory', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM inventory ORDER BY drug');
   res.json(rows.map(toCamel));
 });
 
-app.post('/api/inventory/alert', async (req, res) => {
+app.post('/api/inventory/alert', verifyToken, async (req, res) => {
   const { drugId } = req.body;
   const { rows } = await pool.query('SELECT * FROM inventory WHERE id = $1', [drugId]);
   if (!rows.length) return res.status(404).json({ message: 'Item not found' });
   res.json({ success: true, message: `Restock request sent for ${rows[0].drug}` });
 });
 
-// ─── Staff ────────────────────────────────────────────────────────────────
-app.get('/api/staff', async (req, res) => {
+app.get('/api/staff', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM staff');
   res.json(rows.map(toCamel));
 });
 
-// ─── Beds ─────────────────────────────────────────────────────────────────
-app.get('/api/beds', async (req, res) => {
+app.get('/api/beds', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM beds');
   res.json(rows.map(toCamel));
 });
 
-// ─── Compliance ───────────────────────────────────────────────────────────
-app.get('/api/compliance', async (req, res) => {
+app.get('/api/compliance', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM compliance');
   res.json(rows.map(toCamel));
 });
 
-// ─── Surveillance ─────────────────────────────────────────────────────────
-app.get('/api/surveillance', async (req, res) => {
+app.get('/api/surveillance', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM surveillance_cases');
   res.json(rows.map(toCamel));
 });
 
-app.get('/api/surveillance/cases', async (req, res) => {
+app.get('/api/surveillance/cases', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM surveillance_cases');
   res.json(rows.map(toCamel));
 });
 
-app.get('/api/surveillance/hotspots', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM hotspots');
-  res.json(rows.map(toCamel));
-});
-
-app.get('/api/hotspots', async (req, res) => {
+app.get('/api/surveillance/hotspots', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM hotspots');
   res.json(rows.map(toCamel));
 });
@@ -339,7 +352,6 @@ app.get('/api/surveillance/forecast', (req, res) => {
   res.json(data);
 });
 
-// ─── Chatbot ─────────────────────────────────────────────────────────────
 app.post('/api/chatbot', (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ message: 'Message required' });
@@ -347,13 +359,12 @@ app.post('/api/chatbot', (req, res) => {
   res.json(response);
 });
 
-// ─── Notifications ────────────────────────────────────────────────────────
-app.get('/api/notifications', async (req, res) => {
+app.get('/api/notifications', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM notifications');
   res.json(rows.map(toCamel));
 });
 
-app.get('/api/notifications/:userId', async (req, res) => {
+app.get('/api/notifications/:userId', verifyToken, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT * FROM notifications WHERE user_id = $1',
     [req.params.userId]
@@ -361,8 +372,7 @@ app.get('/api/notifications/:userId', async (req, res) => {
   res.json(rows.map(toCamel));
 });
 
-// ─── Drug Interactions ────────────────────────────────────────────────────
-app.get('/api/drug-interactions', async (req, res) => {
+app.get('/api/drug-interactions', verifyToken, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM drug_interactions');
   res.json(rows.map(toCamel));
 });

@@ -1,21 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { AlertTriangle, MapPin, TrendingUp, Activity, X, Bell } from 'lucide-react'
+import { AlertTriangle, MapPin, TrendingUp, Activity, X, Bell, Loader2 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { MapContainer, TileLayer, CircleMarker, Tooltip as MapTooltip } from 'react-leaflet'
 import { api } from '../../utils/api.js'
-
-const MOCK_HOTSPOTS = [
-  { id: 'H001', city: 'Mumbai', lat: 19.0760, lng: 72.8777, disease: 'Dengue', cases: 2100, severity: 'critical', trend: 'up', daysActive: 14 },
-  { id: 'H002', city: 'Delhi', lat: 28.7041, lng: 77.1025, disease: 'COVID-19', cases: 3200, severity: 'critical', trend: 'up', daysActive: 21 },
-  { id: 'H003', city: 'Kolkata', lat: 22.5726, lng: 88.3639, disease: 'Cholera', cases: 890, severity: 'high', trend: 'up', daysActive: 7 },
-  { id: 'H004', city: 'Chennai', lat: 13.0827, lng: 80.2707, disease: 'Dengue', cases: 1450, severity: 'high', trend: 'stable', daysActive: 18 },
-  { id: 'H005', city: 'Bengaluru', lat: 12.9716, lng: 77.5946, disease: 'Influenza', cases: 720, severity: 'medium', trend: 'down', daysActive: 10 },
-  { id: 'H006', city: 'Hyderabad', lat: 17.3850, lng: 78.4867, disease: 'Malaria', cases: 540, severity: 'medium', trend: 'stable', daysActive: 12 },
-  { id: 'H007', city: 'Pune', lat: 18.5204, lng: 73.8567, disease: 'Typhoid', cases: 320, severity: 'low', trend: 'down', daysActive: 5 },
-  { id: 'H008', city: 'Jaipur', lat: 26.9124, lng: 75.7873, disease: 'Malaria', cases: 280, severity: 'low', trend: 'down', daysActive: 8 },
-  { id: 'H009', city: 'Ahmedabad', lat: 23.0225, lng: 72.5714, disease: 'Hepatitis B', cases: 410, severity: 'medium', trend: 'stable', daysActive: 15 },
-  { id: 'H010', city: 'Patna', lat: 25.5941, lng: 85.1376, disease: 'Cholera', cases: 650, severity: 'high', trend: 'up', daysActive: 6 },
-]
 
 const SEVERITY_COLORS = {
   critical: '#dc2626',
@@ -55,7 +42,10 @@ const OUTBREAK_MESSAGES = [
 ]
 
 export default function GovernmentDashboard() {
-  const [hotspots, setHotspots] = useState(MOCK_HOTSPOTS)
+  const [hotspots, setHotspots] = useState([])
+  const [surveillanceCases, setSurveillanceCases] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [alert, setAlert] = useState(null)
   const [R0, setR0] = useState(2.5)
   const [gamma, setGamma] = useState(0.1)
@@ -64,26 +54,37 @@ export default function GovernmentDashboard() {
   const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
-    api.get('/surveillance/hotspots').then(data => { if (data?.length) setHotspots(data) }).catch(() => {})
+    setLoading(true)
+    Promise.all([
+      api.get('/surveillance/hotspots'),
+      api.get('/surveillance/cases'),
+    ])
+      .then(([hotspotsData, casesData]) => {
+        setHotspots(hotspotsData || [])
+        setSurveillanceCases(casesData || [])
+        setError(null)
+      })
+      .catch(() => {
+        setError('Could not load surveillance data. Check that the backend is running.')
+      })
+      .finally(() => {
+        setLoading(false)
+        setMapReady(true)
+      })
 
-    // Show initial alert after 2s
     const initialTimer = setTimeout(() => {
       setAlert(OUTBREAK_MESSAGES[0])
     }, 2000)
 
-    // Periodic map refresh
     const mapTimer = setInterval(() => {
-      api.get('/surveillance/hotspots').then(data => { if (data?.length) setHotspots(data) }).catch(() => {})
+      api.get('/surveillance/hotspots').then(data => { if (data) setHotspots(data) }).catch(() => {})
     }, 30000)
 
-    // Periodic outbreak alerts
     let alertIdx = 1
     const alertTimer = setInterval(() => {
       setAlert(OUTBREAK_MESSAGES[alertIdx % OUTBREAK_MESSAGES.length])
       alertIdx++
     }, 60000)
-
-    setMapReady(true)
 
     return () => {
       clearTimeout(initialTimer)
@@ -98,10 +99,31 @@ export default function GovernmentDashboard() {
 
   const criticalHotspots = hotspots.filter(h => h.severity === 'critical')
   const highHotspots = hotspots.filter(h => h.severity === 'high')
-  const totalCases = hotspots.reduce((sum, h) => sum + h.cases, 0)
+  const totalCases = hotspots.reduce((sum, h) => sum + (h.cases || 0), 0)
   const anomalies = 7
   const forecastAccuracy = 94.2
   const districtsOnAlert = criticalHotspots.length + highHotspots.length
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-[#0d9488]" />
+        <span className="ml-3 text-gray-500">Loading surveillance data…</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 bg-red-50 border border-red-200 rounded-xl text-red-700">
+        <div className="flex items-center gap-2 mb-1">
+          <AlertTriangle className="w-5 h-5" />
+          <span className="font-semibold">Data load failed</span>
+        </div>
+        <p className="text-sm">{error}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -110,7 +132,6 @@ export default function GovernmentDashboard() {
         <p className="text-gray-500 text-sm mt-1">National Disease Surveillance — Real-Time Monitoring</p>
       </div>
 
-      {/* Outbreak Alert Modal */}
       {alert && (
         <div className="fixed top-4 right-4 z-50 w-80 bg-red-600 text-white rounded-xl shadow-2xl border-2 border-red-400 animate-pulse">
           <div className="p-4">
@@ -131,7 +152,6 @@ export default function GovernmentDashboard() {
         </div>
       )}
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Active Cases (National)', value: totalCases.toLocaleString(), Icon: Activity, color: 'bg-red-50 text-red-600' },
@@ -147,7 +167,6 @@ export default function GovernmentDashboard() {
         ))}
       </div>
 
-      {/* Real-Time India Map */}
       <div className="card">
         <div className="flex items-center gap-2 mb-4">
           <MapPin className="w-5 h-5 text-[#0d9488]" />
@@ -169,11 +188,11 @@ export default function GovernmentDashboard() {
               {hotspots.map(spot => (
                 <CircleMarker
                   key={spot.id}
-                  center={[spot.lat, spot.lng]}
-                  radius={Math.min(8 + spot.cases / 300, 28)}
+                  center={[parseFloat(spot.lat), parseFloat(spot.lng)]}
+                  radius={Math.min(8 + (spot.cases || 0) / 300, 28)}
                   pathOptions={{
-                    color: SEVERITY_COLORS[spot.severity],
-                    fillColor: SEVERITY_COLORS[spot.severity],
+                    color: SEVERITY_COLORS[spot.severity] || '#6b7280',
+                    fillColor: SEVERITY_COLORS[spot.severity] || '#6b7280',
                     fillOpacity: spot.severity === 'critical' ? 0.75 : 0.55,
                     weight: spot.severity === 'critical' ? 2.5 : 1.5,
                   }}
@@ -182,9 +201,9 @@ export default function GovernmentDashboard() {
                     <div className="text-xs">
                       <div className="font-bold">{spot.city}</div>
                       <div>Disease: {spot.disease}</div>
-                      <div>Cases: {spot.cases.toLocaleString()}</div>
-                      <div>Severity: {spot.severity.toUpperCase()}</div>
-                      <div>Trend: {TREND_ICON[spot.trend]} {spot.trend}</div>
+                      <div>Cases: {(spot.cases || 0).toLocaleString()}</div>
+                      <div>Severity: {(spot.severity || '').toUpperCase()}</div>
+                      <div>Trend: {TREND_ICON[spot.trend] || '→'} {spot.trend}</div>
                       <div>Days Active: {spot.daysActive}</div>
                     </div>
                   </MapTooltip>
@@ -203,7 +222,6 @@ export default function GovernmentDashboard() {
         </div>
       </div>
 
-      {/* Disease Hotspot Zones */}
       <div className="card">
         <h2 className="section-title">Disease Hotspot Zones</h2>
         {criticalHotspots.length > 0 && (
@@ -216,32 +234,35 @@ export default function GovernmentDashboard() {
               {criticalHotspots.map(h => (
                 <div key={h.id} className="bg-white p-2.5 rounded-lg border border-red-200">
                   <div className="font-semibold text-sm text-gray-800">{h.city} — {h.disease}</div>
-                  <div className="text-xs text-gray-500">{h.cases.toLocaleString()} cases · Active {h.daysActive} days · Trend: {TREND_ICON[h.trend]}</div>
+                  <div className="text-xs text-gray-500">{(h.cases || 0).toLocaleString()} cases · Active {h.daysActive} days · Trend: {TREND_ICON[h.trend] || '→'}</div>
                 </div>
               ))}
             </div>
           </div>
         )}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {hotspots.filter(h => h.severity !== 'critical').map(h => (
-            <div key={h.id} className="p-3 bg-gray-50 rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-1">
-                <div className="font-semibold text-sm text-gray-800">{h.city}</div>
-                <span className="text-lg">{TREND_ICON[h.trend]}</span>
+        {hotspots.length === 0 ? (
+          <p className="text-sm text-gray-400">No hotspot data available.</p>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {hotspots.filter(h => h.severity !== 'critical').map(h => (
+              <div key={h.id} className="p-3 bg-gray-50 rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="font-semibold text-sm text-gray-800">{h.city}</div>
+                  <span className="text-lg">{TREND_ICON[h.trend] || '→'}</span>
+                </div>
+                <div className="text-xs text-gray-600 mb-1">{h.disease} · {(h.cases || 0).toLocaleString()} cases</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">{h.daysActive} days active</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: (SEVERITY_COLORS[h.severity] || '#6b7280') + '20', color: SEVERITY_COLORS[h.severity] || '#6b7280' }}>
+                    {h.severity}
+                  </span>
+                </div>
               </div>
-              <div className="text-xs text-gray-600 mb-1">{h.disease} · {h.cases.toLocaleString()} cases</div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-400">{h.daysActive} days active</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: SEVERITY_COLORS[h.severity] + '20', color: SEVERITY_COLORS[h.severity] }}>
-                  {h.severity}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* SIR/SEIR Forecast */}
       <div className="card">
         <div className="flex items-center gap-2 mb-4">
           <TrendingUp className="w-5 h-5 text-[#0d9488]" />
@@ -277,7 +298,6 @@ export default function GovernmentDashboard() {
         </ResponsiveContainer>
       </div>
 
-      {/* Disease Trends */}
       <div className="card">
         <h2 className="section-title">Active Surveillance Cases</h2>
         <div className="overflow-x-auto">
@@ -294,22 +314,18 @@ export default function GovernmentDashboard() {
               </tr>
             </thead>
             <tbody>
-              {[
-                { disease: 'Dengue', state: 'Maharashtra, Pune', cases: 1240, newCases: 89, deaths: 12, trend: 'up', severity: 'high' },
-                { disease: 'Malaria', state: 'Rajasthan, Jodhpur', cases: 780, newCases: 42, deaths: 5, trend: 'stable', severity: 'medium' },
-                { disease: 'COVID-19', state: 'Delhi, South Delhi', cases: 3200, newCases: 210, deaths: 18, trend: 'up', severity: 'critical' },
-                { disease: 'Tuberculosis', state: 'Uttar Pradesh, Varanasi', cases: 560, newCases: 22, deaths: 8, trend: 'down', severity: 'medium' },
-                { disease: 'Cholera', state: 'Bihar, Patna', cases: 340, newCases: 65, deaths: 9, trend: 'up', severity: 'high' },
-              ].map((row, i) => (
-                <tr key={i} className={`border-b border-gray-50 hover:bg-gray-50 ${row.severity === 'critical' ? 'bg-red-50' : ''}`}>
+              {surveillanceCases.length === 0 ? (
+                <tr><td colSpan={7} className="py-4 text-center text-gray-400 text-sm">No surveillance cases found.</td></tr>
+              ) : surveillanceCases.map((row, i) => (
+                <tr key={row.id || i} className={`border-b border-gray-50 hover:bg-gray-50 ${row.severity === 'critical' ? 'bg-red-50' : ''}`}>
                   <td className="py-2.5 font-medium text-gray-800">{row.disease}</td>
-                  <td className="py-2.5 text-gray-600 text-xs">{row.state}</td>
-                  <td className="py-2.5 text-gray-700">{row.cases.toLocaleString()}</td>
-                  <td className="py-2.5 font-semibold text-red-600">{row.newCases}</td>
-                  <td className="py-2.5 text-gray-600">{row.deaths}</td>
-                  <td className="py-2.5 text-lg">{TREND_ICON[row.trend]}</td>
+                  <td className="py-2.5 text-gray-600 text-xs">{row.state}{row.district ? `, ${row.district}` : ''}</td>
+                  <td className="py-2.5 text-gray-700">{(row.cases || 0).toLocaleString()}</td>
+                  <td className="py-2.5 font-semibold text-red-600">{row.newCases ?? row.new_cases ?? 0}</td>
+                  <td className="py-2.5 text-gray-600">{row.deaths ?? 0}</td>
+                  <td className="py-2.5 text-lg">{TREND_ICON[row.trend] || '→'}</td>
                   <td className="py-2.5">
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: SEVERITY_COLORS[row.severity] + '20', color: SEVERITY_COLORS[row.severity] }}>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize" style={{ backgroundColor: (SEVERITY_COLORS[row.severity] || '#6b7280') + '20', color: SEVERITY_COLORS[row.severity] || '#6b7280' }}>
                       {row.severity}
                     </span>
                   </td>

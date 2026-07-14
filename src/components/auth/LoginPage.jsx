@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Shield, Eye, EyeOff, Loader2, Info } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext.jsx'
 import { ROLES } from '../../utils/constants.js'
 
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '', role: 'doctor', remember: false })
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
+  const [showDemo, setShowDemo] = useState(false)
 
   const set = (k) => (e) => setForm(p => ({ ...p, [k]: e.target.value }))
 
@@ -20,13 +21,22 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     try {
-      // Passes credentials explicitly down to your AuthContext handler
       await login(form.email, form.password, form.role)
       navigate(from, { replace: true })
     } catch {
       setError('Invalid credentials. Please try again.')
     }
   }
+
+  const DEMO_ACCOUNTS = [
+    { role: 'Doctor',     email: 'doctor@demo.com' },
+    { role: 'Patient',    email: 'patient@demo.com' },
+    { role: 'Nurse',      email: 'nurse@demo.com' },
+    { role: 'Lab Tech',   email: 'labtech@demo.com' },
+    { role: 'Pharmacist', email: 'pharma@demo.com' },
+    { role: 'Admin',      email: 'admin@demo.com' },
+    { role: 'Government', email: 'govt@demo.com' },
+  ]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] flex items-center justify-center p-4">
@@ -77,6 +87,36 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowDemo(v => !v)}
+              className="w-full flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-700 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Info className="w-4 h-4" />
+              {showDemo ? 'Hide demo accounts' : 'Show demo accounts'}
+            </button>
+            {showDemo && (
+              <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs font-semibold text-blue-700 mb-2">Demo accounts — password is <code className="bg-blue-100 px-1 rounded">demo</code> for all</p>
+                <div className="space-y-1">
+                  {DEMO_ACCOUNTS.map(a => (
+                    <button
+                      key={a.email}
+                      type="button"
+                      onClick={() => setForm(p => ({ ...p, email: a.email, password: 'demo' }))}
+                      className="w-full text-left flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-blue-100 transition-colors"
+                    >
+                      <span className="text-blue-800 font-medium">{a.role}</span>
+                      <span className="text-blue-600 font-mono">{a.email}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-blue-500 mt-2">Click a row to fill in the credentials.</p>
+              </div>
+            )}
+          </div>
 
           <div className="mt-6 pt-6 border-t border-gray-100">
             <p className="text-sm text-gray-500 text-center">

@@ -1,20 +1,16 @@
 import React, { createContext, useContext, useState } from 'react';
 
-// 1. Create the context
 const AuthContext = createContext();
 
-// 2. Export the custom hook
 export const useAuth = () => {
     return useContext(AuthContext);
 };
 
-// 3. Export the provider
 export const AuthProvider = ({ children }) => {
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(false);
 
-    // Get the backend URL from your .env file, fallback to localhost:5000
-    const API_URL = 'http://localhost:5000';
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
     const login = async (email, password, role) => {
         setLoading(true);
@@ -32,7 +28,6 @@ export const AuthProvider = ({ children }) => {
 
             const data = await response.json();
             setCurrentUser(data.user);
-            // Optional: Store token in localStorage for persistence
             localStorage.setItem('omnishield_token', data.token);
             return data;
         } finally {
@@ -69,6 +64,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const value = {
+        user: currentUser,
         currentUser,
         setCurrentUser,
         login,

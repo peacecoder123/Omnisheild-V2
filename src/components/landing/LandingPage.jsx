@@ -37,7 +37,6 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-6 text-sm text-gray-300">
             <a href="#features" className="hover:text-white transition-colors">Features</a>
             <a href="#stats" className="hover:text-white transition-colors">Impact</a>
-            <Link to="/business-model" className="hover:text-white transition-colors">Pricing</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link to="/login" className="text-sm text-white hover:text-teal-300 transition-colors">Sign In</Link>
@@ -128,7 +127,7 @@ export default function LandingPage() {
         <p className="text-gray-500 text-lg mb-8">Join 2,400+ hospitals already using OmniShield.</p>
         <div className="flex gap-4 justify-center">
           <Link to="/register" className="btn-primary text-base py-3 px-8">Get Started Free</Link>
-          <Link to="/business-model" className="btn-outline text-base py-3 px-8">View Pricing</Link>
+          <Link to="/login" className="btn-outline text-base py-3 px-8">View Demo</Link>
         </div>
       </section>
 

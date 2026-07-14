@@ -41,8 +41,6 @@ import PopulationHealth from './components/analytics/PopulationHealth.jsx'
 // Security
 import SecurityCenter from './components/security/SecurityCenter.jsx'
 
-// Business
-import BusinessModelPage from './components/business/BusinessModelPage.jsx'
 
 // QR Scanner
 import QRScanner from './components/QRScanner.jsx'
@@ -66,7 +64,6 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/mfa-setup" element={<MFASetup />} />
-          <Route path="/business-model" element={<BusinessModelPage />} />
 
           {/* Protected */}
           <Route path="/dashboard"    element={<ProtectedPage><RoleDashboard /></ProtectedPage>} />

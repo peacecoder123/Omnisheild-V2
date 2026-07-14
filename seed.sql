@@ -2,15 +2,14 @@
 -- Run AFTER schema.sql: psql -U postgres -d omnishield -f seed.sql
 
 -- ─── Users ────────────────────────────────────────────────────────────────
--- NOTE: Passwords are plain text for demo only. Use bcrypt in production.
 INSERT INTO users (id, email, password, role, name, facility, abha_id) VALUES
-  ('U001', 'doctor@demo.com',  'demo', 'doctor',      'Dr. Ananya Desai',  'City General Hospital', NULL),
-  ('U002', 'patient@demo.com', 'demo', 'patient',     'Amit Sharma',       'City General Hospital', 'ABHA-12345-67890'),
-  ('U003', 'nurse@demo.com',   'demo', 'nurse',       'Sr. Neha Sharma',   'City General Hospital', NULL),
-  ('U004', 'labtech@demo.com', 'demo', 'lab_tech',    'Ramesh Verma',      'City General Hospital', NULL),
-  ('U005', 'pharma@demo.com',  'demo', 'pharmacist',  'Kavita Patel',      'City General Hospital', NULL),
-  ('U006', 'admin@demo.com',   'demo', 'admin',       'Suresh Kumar',      'City General Hospital', NULL),
-  ('U007', 'govt@demo.com',    'demo', 'government',  'IAS Rajesh Mehta',  'Ministry of Health',    NULL);
+  ('U001', 'doctor@demo.com',  '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'doctor',      'Dr. Ananya Desai',  'City General Hospital', NULL),
+  ('U002', 'patient@demo.com', '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'patient',     'Amit Sharma',       'City General Hospital', 'ABHA-12345-67890'),
+  ('U003', 'nurse@demo.com',   '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'nurse',       'Sr. Neha Sharma',   'City General Hospital', NULL),
+  ('U004', 'labtech@demo.com', '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'lab_tech',    'Ramesh Verma',      'City General Hospital', NULL),
+  ('U005', 'pharma@demo.com',  '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'pharmacist',  'Kavita Patel',      'City General Hospital', NULL),
+  ('U006', 'admin@demo.com',   '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'admin',       'Suresh Kumar',      'City General Hospital', NULL),
+  ('U007', 'govt@demo.com',    '$2b$10$r9Kib1gtDmXwCYlZwOzX.erI8rgtGPolR051Ueufst1QpmT26UTGO', 'government',  'IAS Rajesh Mehta',  'Ministry of Health',    NULL);
 
 -- ─── Patients ─────────────────────────────────────────────────────────────
 INSERT INTO patients (id, name, age, gender, blood, abha_id, phone, condition, status, allergies, emergency_contact, address, vitals, history) VALUES
